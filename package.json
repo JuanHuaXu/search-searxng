@@ -1,6 +1,7 @@
 {
   "name": "search-searxng",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "Standalone OpenClaw SearXNG Plugin",
   "type": "module",
   "main": "dist/index.js",
