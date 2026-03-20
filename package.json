@@ -1,0 +1,22 @@
+{
+  "name": "search-searxng",
+  "version": "1.0.0",
+  "description": "Standalone OpenClaw SearXNG Plugin",
+  "type": "module",
+  "main": "dist/index.js",
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.48"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "openclaw": "file:../openclaw"
+  }
+}
