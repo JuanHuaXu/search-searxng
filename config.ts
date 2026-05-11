@@ -15,4 +15,4 @@ export const searxngConfigSchema = Type.Object({
       default: 5
     })
   )
-});
+}, { additionalProperties: false });

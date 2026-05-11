@@ -40,15 +40,25 @@ const searxngPlugin = {
           ),
         }),
         async execute(_toolCallId: string, params: any) {
-          const { query, count = cfg.maxResults || 5, language, freshness } = params as any;
+          const { query, language, freshness } = params as any;
+          
+          // M-1: Enforce parameter bounds at the plugin level
+          const count = Math.max(1, Math.min(10, params.count ?? cfg.maxResults ?? 5));
+
+          // M-2: Validate language and freshness
+          const VALID_LANGUAGES = /^[a-z]{2}(-[A-Z]{2})?$/;
+          const VALID_FRESHNESS = /^(day|week|month|year)$/;
+          
+          const safeLanguage = language && VALID_LANGUAGES.test(language) ? language : undefined;
+          const safeFreshness = freshness && VALID_FRESHNESS.test(freshness) ? freshness : undefined;
           
           try {
             const url = new URL(cfg.baseUrl);
             url.pathname = url.pathname.replace(/\/$/, "") + "/search";
             url.searchParams.set("q", query);
             url.searchParams.set("format", "json");
-            if (language) url.searchParams.set("language", language);
-            if (freshness) url.searchParams.set("time_range", freshness);
+            if (safeLanguage) url.searchParams.set("language", safeLanguage);
+            if (safeFreshness) url.searchParams.set("time_range", safeFreshness);
 
             const headers: Record<string, string> = {
               Accept: "application/json",
@@ -65,10 +75,18 @@ const searxngPlugin = {
 
             if (!response.ok) {
               const errorText = await response.text();
-              throw new Error(`SearXNG API error (${response.status}): ${errorText || response.statusText}`);
+              // H-1: Sanitize error messages to prevent information leakage
+              const safeMessage = response.status >= 500
+                ? `SearXNG API error (${response.status})`
+                : `Search API error: ${errorText.substring(0, 100)}`;
+              throw new Error(safeMessage);
             }
 
             if (!response.body) throw new Error("Empty response body from SearXNG.");
+            
+            // M-3: No Content-Length Guard on HTTP Response
+            const contentLength = parseInt(response.headers.get('content-length') || '0');
+            if (contentLength > 5 * 1024 * 1024) throw new Error("SearXNG response too large");
             
             const reader = response.body.getReader();
             let receivedLength = 0;
@@ -101,11 +119,22 @@ const searxngPlugin = {
               };
             }
 
+            const escapeHtml = (s: string) => s
+              .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+
             const formatted = results.map((entry: any, i: number) => {
+              // L-1: Unchecked Result Fields - ensure null checks and escaping
+              const title = entry?.title ? escapeHtml(entry.title) : "No Title";
+              const url = entry?.url ? escapeHtml(entry.url) : "";
+              const content = entry?.content ? escapeHtml(entry.content) : "";
+              const published = entry?.publishedDate ? escapeHtml(entry.publishedDate) : "";
+
               const parts = [
-                `${i + 1}. [${entry.title || "No Title"}](${entry.url})`,
-                entry.content ? `   Snippet: ${entry.content}` : "",
-                entry.publishedDate ? `   Date: ${entry.publishedDate}` : ""
+                `${i + 1}. [${title}](${url})`,
+                content ? `   Snippet: ${content}` : "",
+                published ? `   Date: ${published}` : ""
               ].filter(Boolean);
               return parts.join("\n");
             }).join("\n\n");
@@ -119,10 +148,12 @@ const searxngPlugin = {
               details: { results }
             };
           } catch (err) {
-            api.logger.error(`search-searxng: tool failed - ${String(err)}`);
+            // H-1: Sanitize error messages in tool failure response
+            const safeError = err instanceof Error ? err.message : 'Search service unavailable';
+            api.logger.error(`search-searxng: tool failed - ${safeError}`);
             return {
-              content: [{ type: "text", text: `SearXNG search error: ${String(err)}` }],
-              details: { error: String(err) }
+              content: [{ type: "text", text: `SearXNG search error: ${safeError}` }],
+              details: { error: safeError }
             };
           }
         },
